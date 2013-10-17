@@ -1,5 +1,5 @@
 /*
- * CFile1.c
+ *  EXT2.c
  *
  *  "Copyright 2013 Mauro Ghedin"
  *
@@ -24,9 +24,11 @@
  *       
  */ 
 
+// librabry for microSD - SD carc control
 #include "SDMCC/SDMMC.h"
-#include "EXT2.h"
+// library for string handling - used for fill empty a string
 #include "STRING/string_hdl.h"
+#include "EXT2.h"
 
 void EXT_mount()
 {
@@ -34,12 +36,12 @@ void EXT_mount()
 	struct partitionDesc *partition;
 	struct superblock *sBlock;
 	char cc[10];
-	//	Read block = FromByte / SD_blkSize
-	readBlockSD(0);						// read from addr 0
+	
+	readBlockSD(0);				//	Read block no. 0
 	
 	dMbr = (struct MBR *)buffer;
 	
-	if (dMbr->signature != 0xAA55)		//	this is not a MBR disk
+	if (dMbr->signature != 0xAA55)		//	this isn't a MBR disk
 		return 0x01;
 	
 	partition = ( struct partitionDesc *)(dMbr->pEntry1);

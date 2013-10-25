@@ -1,5 +1,5 @@
 /*
- * CFile1.c
+ * EXT2.c
  *
  *  "Copyright 2013 Mauro Ghedin"
  *

@@ -1,5 +1,5 @@
 /*
- *  EXT2.c
+ * CFile1.c
  *
  *  "Copyright 2013 Mauro Ghedin"
  *
@@ -24,11 +24,14 @@
  *       
  */ 
 
-// librabry for microSD - SD carc control
 #include "SDMCC/SDMMC.h"
-// library for string handling - used for fill empty a string
-#include "STRING/string_hdl.h"
 #include "EXT2.h"
+#include "STRING/string_hdl.h"
+
+#include "LCD/graphic.h"
+#include "PARSER/parsing.h"
+
+char* readInode( unsigned long inodeId );
 
 void EXT_mount()
 {
@@ -36,12 +39,12 @@ void EXT_mount()
 	struct partitionDesc *partition;
 	struct superblock *sBlock;
 	char cc[10];
-	
-	readBlockSD(0);				//	Read block no. 0
+	//	Read block = FromByte / SD_blkSize
+	readBlockSD(0);						// read from addr 0
 	
 	dMbr = (struct MBR *)buffer;
 	
-	if (dMbr->signature != 0xAA55)		//	this isn't a MBR disk
+	if (dMbr->signature != 0xAA55)		//	this is not a MBR disk
 		return 0x01;
 	
 	partition = ( struct partitionDesc *)(dMbr->pEntry1);
@@ -82,14 +85,10 @@ void EXT_mount()
 	{
 		struct blockGroup *bgGroup;
 		readBlockSD(EXT_base + BG_LBA_OFFSET + ( i * 2 ));								//	Read block of bg_descriptor table
+		bgGroup = (struct blockGroup *)buffer;											//	populate struct
 		for ( int j = 0; j < bg_per_block; j++) {
-			unsigned char _temp[35];
-				for (int b = j * BG_SIZEOFF; b < j * BG_SIZEOFF + BG_SIZEOFF; b++)		//	Taking a part of buffer and save to _temp array
-					_temp[b - j * BG_SIZEOFF] = buffer[b];
-			bgGroup = (struct blockGroup *)_temp;										//	populate struct
-			// exit loop
 			if (i * BG_LBA_OFFSET + j >= 100) { i = bg_read; break;}
-			inodes_addr[i * BG_LBA_OFFSET + j]	= bgGroup->bg_inode_table;
+			inodes_addr[i * BG_LBA_OFFSET + j]	= ( bgGroup + j )->bg_inode_table;
 		}		
 	}
 }
@@ -101,31 +100,16 @@ DIR EXT_ls(DIR fileDir, DIR_HNDL* hndl)
 	DIR null_dir;
 	null_dir.inode_id = 0;
 	
-	if ( fileDir.inode_id != 0 && fileDir.inode_type != 2)
+//	No-dir type discrimination
+	if ( fileDir.inode_id != 0 && fileDir.inode_type != EXT2_FT_DIR)
 		return null_dir;
 	
 //	If no inode is specified, ROOT inode is selected
-	if (fileDir.inode_id == 0) {
+	if (fileDir.inode_id == 0)
 		fileDir.inode_id = 2;
-	}
 		
-	unsigned long inodes_block_gruop	= (fileDir.inode_id - 1) / s_inodes_per_group;
-	unsigned long local_inode_index		= (fileDir.inode_id - 1) % s_inodes_per_group;
-	
-	unsigned long block_index			= local_inode_index / inode_block_count;
-	
-	unsigned long reading_adress		= inodes_addr[inodes_block_gruop] + ( block_index * 2 );
-	readBlockSD( EXT_base + ( reading_adress * 2));
-	
-	int inode_buff_start_byte			= ( local_inode_index * inode_size ) - block_index * block_size;
-
-	struct inode *inode_struct;	
-	unsigned char _temp[512];
-	
-	for (int i = inode_buff_start_byte; i < inode_buff_start_byte + inode_size; i++)
-		_temp[ i - inode_buff_start_byte ] = buffer[ i ];
-	
-	inode_struct = (struct inode *)_temp;
+	struct inode *inode_struct;
+	inode_struct = (struct inode *)readInode(fileDir.inode_id);
 	
 	//	increase index block pointer
 	if ( hndl->dir_entry_byte >= block_size ) {
@@ -134,30 +118,118 @@ DIR EXT_ls(DIR fileDir, DIR_HNDL* hndl)
 	}	
 	
 	//	if next block is == 0 or index > 12 exit DIR->inode_id = 0
-	if (inode_struct->i_block[hndl->last_inode_block_index] == 0 || hndl->last_inode_block_index > 12)
+	if ( inode_struct->i_block[hndl->last_inode_block_index] == 0 || hndl->last_inode_block_index > 12)
 		return null_dir;
 	
 	//	read directory entry block
 	readBlockSD( EXT_base + ( inode_struct->i_block[hndl->last_inode_block_index] * 2 )); 
 		
-	//	reading DIR info data
-	for (int i = hndl->dir_entry_byte; i < hndl->dir_entry_byte + DIR_TEMP_OFFSET; i++)
-		_temp[ i - hndl->dir_entry_byte ] = buffer[ i ];
-	
 	struct dirEntry *_tempDir;
-	_tempDir = (struct dirEntry *)_temp;
+	_tempDir = (struct dirEntry *)(buffer + hndl->dir_entry_byte);
 	
 	DIR _returnDIR;
-	
-	NULL_char(_returnDIR.inode_name, MAX_F_NAME);
-	
+		
 	_returnDIR.inode_id			= _tempDir->d_inode;
 	_returnDIR.inode_type		= _tempDir->d_file_type;
 	
 	hndl->dir_entry_byte		+= _tempDir->d_rec_len;
 	
-	for (int i = 0; i < MAX_F_NAME && i < _tempDir->d_name_len; i++)
+	for (int i = 0; i < MAX_F_NAME && i < _tempDir->d_name_len; i++) {
 		_returnDIR.inode_name[i] = _tempDir->d_file_name[i];
+		_returnDIR.inode_name[i + 1] = 0x00;
+	}	
 		
 	return _returnDIR;
+}
+
+
+char* EXT_readfile( FILE_HNDL* fileHndl ) 
+{
+	struct inode *inode_struct;
+	int	loop = 0;
+
+	inode_struct					= (struct inode *)readInode(fileHndl->inode_id);
+	
+	//	if file inode is not a socket inode - skip
+	if ( !(inode_struct->i_mode & 0x8000) )
+		return 0x00;
+		
+	//	getting file size
+	unsigned long file_size			= inode_struct->i_size;
+	
+	unsigned long *data_address;
+	
+	unsigned char _temp_data[MAX_FLINE_LENGHT];
+	
+	do {
+		
+		//	re-reading inode struct
+		//	re-reading operation is necessary for memory saving
+		if (loop == 1)
+			inode_struct					= (struct inode *)readInode(fileHndl->inode_id);
+		
+		//	calculating block inode index
+		unsigned long block_index		= fileHndl->last_byte / block_size;
+	
+		//	reading indirect block addresses 
+		if ( block_index < 12 ) {
+			*data_address				= inode_struct->i_block[block_index];
+		}		
+		else {
+			readBlockSD( EXT_base + (inode_struct->i_block[12] ) * 2);
+			data_address				= (unsigned long *)(buffer + ( block_index - 12 ) * 4 );
+		}
+		
+		//	reading data block
+		readBlockSD( EXT_base + *data_address * 2 );
+	
+		//	local block byte index
+		unsigned int local_byte_index	= fileHndl->last_byte % block_size;
+	
+		if ( fileHndl->last_byte >= file_size )
+			return EOF;
+		
+		int i = 0;
+		for ( i = local_byte_index; i < block_size && buffer[i] != '\n' && fileHndl->last_byte < file_size; i++) {
+			*(_temp_data + i - local_byte_index)			= buffer[i];
+			*(_temp_data + i - local_byte_index + 1)		= 0x00;
+			fileHndl->last_byte++;
+		}
+	
+		if (buffer[i] == '\n')
+			fileHndl->last_byte++;
+		
+		//	Exit condition - stop reading stream
+		if ( buffer[i] == '\n' || fileHndl->last_byte >= file_size)	
+			return _temp_data;
+		
+		loop = 1;
+		
+	} while( 1 );	
+}
+
+char* readInode( unsigned long inodeId ) 
+{
+	//	calculating in witch block group is contained the inode
+	unsigned long inodes_block_gruop	= ( inodeId - 1 ) / s_inodes_per_group;
+	//	calculating local block group inode index
+	unsigned long local_inode_index		= ( inodeId - 1 ) % s_inodes_per_group;
+	//	calculating bock index in the local block group
+	unsigned long block_index			= ( local_inode_index * inode_size ) / block_size;
+	//	read address
+	unsigned long reading_adress		= inodes_addr[inodes_block_gruop] + block_index;
+	
+	readBlockSD( EXT_base + reading_adress * 2 );
+	
+	//	inode start byte into block
+	int inode_buff_start_byte			= ( local_inode_index * inode_size ) - block_index * block_size;
+
+	/*unsigned char _temp[inode_size];
+	*
+	*for (int i = inode_buff_start_byte; i < inode_buff_start_byte + inode_size; i++)
+	*	_temp[ i - inode_buff_start_byte ] = buffer[ i ];
+	*
+	*return _temp;
+	*/
+	return buffer + inode_buff_start_byte;
 }

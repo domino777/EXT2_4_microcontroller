@@ -20,7 +20,7 @@
  *
  *       @author         : Mauro Ghedin
  *       @contact        : domyno88 at gmail dot com
- *       @version        : 0.1
+ *       @version        : 0.2
  *       
  */ 
 
@@ -33,7 +33,7 @@
 
 char* readInode( unsigned long inodeId );
 
-void EXT_mount()
+int EXT_mount()
 {
 	struct MBR *dMbr;
 	struct partitionDesc *partition;
@@ -59,6 +59,8 @@ void EXT_mount()
 
 //	Block size calculation
 	block_size			= 1024 << sBlock->s_long_block_size;
+	if ( block_size != 1024 )
+		return 0x02;
 	
 //	Total number of inodes per block
 	inode_block_count	= block_size / inode_size;
@@ -74,7 +76,7 @@ void EXT_mount()
 	bg_count			= sBlock->s_block_count / sBlock->s_blocks_per_gruop;
 	
 	unsigned int bg_per_block	= block_size / BG_SIZEOFF;
-	unsigned int bg_read		= bg_per_block / bg_count;
+	unsigned int bg_read		= bg_count / bg_per_block;
 	
 	if ( (block_size / BG_SIZEOFF ) % bg_count > 0)
 		bg_read++;
@@ -87,10 +89,12 @@ void EXT_mount()
 		readBlockSD(EXT_base + BG_LBA_OFFSET + ( i * 2 ));								//	Read block of bg_descriptor table
 		bgGroup = (struct blockGroup *)buffer;											//	populate struct
 		for ( int j = 0; j < bg_per_block; j++) {
-			if (i * BG_LBA_OFFSET + j >= 100) { i = bg_read; break;}
-			inodes_addr[i * BG_LBA_OFFSET + j]	= ( bgGroup + j )->bg_inode_table;
+			if (i * BG_SIZEOFF + j >= 512) { i = bg_read; break;}
+			inodes_addr[i * BG_SIZEOFF + j]	= ( bgGroup + j )->bg_inode_table;
 		}		
 	}
+	
+	return 0x00;
 }
 
 
@@ -143,7 +147,7 @@ DIR EXT_ls(DIR fileDir, DIR_HNDL* hndl)
 }
 
 
-char* EXT_readfile( FILE_HNDL* fileHndl ) 
+char EXT_readfile( FILE_HNDL* fileHndl, char *text ) 
 {
 	struct inode *inode_struct;
 	int	loop = 0;
@@ -158,8 +162,6 @@ char* EXT_readfile( FILE_HNDL* fileHndl )
 	unsigned long file_size			= inode_struct->i_size;
 	
 	unsigned long *data_address;
-	
-	unsigned char _temp_data[MAX_FLINE_LENGHT];
 	
 	do {
 		
@@ -191,17 +193,18 @@ char* EXT_readfile( FILE_HNDL* fileHndl )
 		
 		int i = 0;
 		for ( i = local_byte_index; i < block_size && buffer[i] != '\n' && fileHndl->last_byte < file_size; i++) {
-			*(_temp_data + i - local_byte_index)			= buffer[i];
-			*(_temp_data + i - local_byte_index + 1)		= 0x00;
+			text[i - local_byte_index]			= buffer[i];
 			fileHndl->last_byte++;
 		}
+		
+		text[i - local_byte_index]		= 0x00;
 	
 		if (buffer[i] == '\n')
 			fileHndl->last_byte++;
 		
 		//	Exit condition - stop reading stream
 		if ( buffer[i] == '\n' || fileHndl->last_byte >= file_size)	
-			return _temp_data;
+			return 0;
 		
 		loop = 1;
 		

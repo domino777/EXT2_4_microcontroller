@@ -1,5 +1,5 @@
 /*
- *  FAT.h
+ *  EXT2.h
  *
  *  "Copyright 2013 Mauro Ghedin"
  *
@@ -20,7 +20,7 @@
  *
  *       @author         : Mauro Ghedin
  *       @contact        : domyno88 at gmail dot com
- *       @version        : 0.1
+ *       @version        : 0.2
  *       
  */ 
 
@@ -90,7 +90,7 @@ struct blockGroup {
 		unsigned int	bg_free_inode_count;	//	total inode of free block of the group
 		unsigned int	bg_used_dirs_count;		//	number of inode allocated to directories of the group
 		unsigned int	bg_pad;					//	padding
-		unsigned long	bg_reserved;
+		unsigned long	bg_reserved[3];
 	};
 
 struct inode {
@@ -147,7 +147,7 @@ volatile unsigned int			bg_count;				//	block group count
 volatile unsigned long			blockGroupNo;
 
 volatile unsigned long			block_size;
-volatile unsigned long			inodes_addr[100];		//	inode table base address
+volatile unsigned long			inodes_addr[512];		//	inode table base address
 volatile unsigned long			first_ino;
 volatile unsigned long			first_block_ino;		//	index first usable inode for standard file
 volatile unsigned long			s_inodes_per_group;		//	inodes per group
@@ -166,8 +166,8 @@ extern volatile unsigned char	buffer[1024];
 #define EOF					0x04
 #define MAX_FLINE_LENGHT	1024
 
-void	EXT_mount();
+int		EXT_mount();
 DIR		EXT_ls(DIR fileDir, DIR_HNDL* hndl);
-char*	EXT_readfile( FILE_HNDL *fileHndl );
+char	EXT_readfile( FILE_HNDL *fileHndl, char* text );
 
 #endif /* FAT_H_ */

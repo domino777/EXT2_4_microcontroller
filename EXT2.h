@@ -24,8 +24,8 @@
  *       
  */ 
 
-#ifndef FAT_H_
-#define FAT_H_
+#ifndef EXT2_H_
+#define EXT2_H_
 
 //	CHAR	- 1 byte
 //	INT		- 2 byte
@@ -170,4 +170,4 @@ int		EXT_mount();
 DIR		EXT_ls(DIR fileDir, DIR_HNDL* hndl);
 char	EXT_readfile( FILE_HNDL *fileHndl, char* text );
 
-#endif /* FAT_H_ */
+#endif /* EXT2_H_ */

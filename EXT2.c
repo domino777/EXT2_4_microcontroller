@@ -26,10 +26,6 @@
 
 #include "SDMCC/SDMMC.h"
 #include "EXT2.h"
-#include "STRING/string_hdl.h"
-
-#include "LCD/graphic.h"
-#include "PARSER/parsing.h"
 
 char* readInode( unsigned long inodeId );
 
